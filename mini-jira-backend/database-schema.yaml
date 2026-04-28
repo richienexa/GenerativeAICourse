@@ -1,0 +1,127 @@
+database: mini_jira
+engine: MySQL
+orm: Drizzle ORM
+
+tables:
+
+  users:
+    description: Usuarios del sistema
+    columns:
+      id:            { type: VARCHAR(36), primaryKey: true, default: UUID() }
+      name:          { type: VARCHAR(255), nullable: false }
+      email:         { type: VARCHAR(255), nullable: false, unique: true }
+      password_hash: { type: VARCHAR(255), nullable: false }
+      role:          { type: ENUM('admin','member'), nullable: false, default: member }
+      archived_at:   { type: DATETIME, nullable: true }
+      created_at:    { type: DATETIME, nullable: false, default: CURRENT_TIMESTAMP }
+      updated_at:    { type: DATETIME, nullable: false, default: CURRENT_TIMESTAMP, onUpdate: CURRENT_TIMESTAMP }
+    indexes:
+      - { columns: [email], unique: true }
+      - { columns: [archived_at] }
+
+  refresh_tokens:
+    description: Refresh tokens activos por usuario
+    columns:
+      id:         { type: VARCHAR(36), primaryKey: true, default: UUID() }
+      user_id:    { type: VARCHAR(36), nullable: false, references: users.id, onDelete: CASCADE }
+      token_hash: { type: VARCHAR(255), nullable: false, unique: true }
+      expires_at: { type: DATETIME, nullable: false }
+      created_at: { type: DATETIME, nullable: false, default: CURRENT_TIMESTAMP }
+    indexes:
+      - { columns: [token_hash], unique: true }
+      - { columns: [user_id] }
+      - { columns: [expires_at] }
+
+  labels:
+    description: Etiquetas predefinidas reutilizables
+    columns:
+      id:            { type: VARCHAR(36), primaryKey: true, default: UUID() }
+      name:          { type: VARCHAR(100), nullable: false, unique: true }
+      created_by_id: { type: VARCHAR(36), nullable: false, references: users.id }
+      archived_at:   { type: DATETIME, nullable: true }
+      created_at:    { type: DATETIME, nullable: false, default: CURRENT_TIMESTAMP }
+    indexes:
+      - { columns: [name], unique: true }
+      - { columns: [archived_at] }
+
+  tickets:
+    description: Tickets del tablero Kanban
+    columns:
+      id:            { type: VARCHAR(36), primaryKey: true, default: UUID() }
+      title:         { type: VARCHAR(120), nullable: false }
+      description:   { type: TEXT, nullable: true }
+      status:        { type: ENUM('todo','in_progress','review','done'), nullable: false, default: todo }
+      priority:      { type: ENUM('low','medium','high'), nullable: false, default: medium }
+      is_blocked:    { type: BOOLEAN, nullable: false, default: false }
+      created_by_id: { type: VARCHAR(36), nullable: false, references: users.id }
+      archived_at:   { type: DATETIME, nullable: true }
+      created_at:    { type: DATETIME, nullable: false, default: CURRENT_TIMESTAMP }
+      updated_at:    { type: DATETIME, nullable: false, default: CURRENT_TIMESTAMP, onUpdate: CURRENT_TIMESTAMP }
+    indexes:
+      - { columns: [status] }
+      - { columns: [priority] }
+      - { columns: [archived_at] }
+      - { columns: [created_at] }
+      - { columns: [created_by_id] }
+
+  ticket_assignees:
+    description: Relación muchos-a-muchos entre tickets y usuarios asignados
+    columns:
+      ticket_id: { type: VARCHAR(36), nullable: false, references: tickets.id, onDelete: CASCADE }
+      user_id:   { type: VARCHAR(36), nullable: false, references: users.id, onDelete: CASCADE }
+    primaryKey: [ticket_id, user_id]
+    indexes:
+      - { columns: [ticket_id] }
+      - { columns: [user_id] }
+    constraints:
+      - description: Un ticket debe tener al menos un asignado (validado en capa de aplicación)
+
+  ticket_labels:
+    description: Relación muchos-a-muchos entre tickets y etiquetas
+    columns:
+      ticket_id: { type: VARCHAR(36), nullable: false, references: tickets.id, onDelete: CASCADE }
+      label_id:  { type: VARCHAR(36), nullable: false, references: labels.id, onDelete: CASCADE }
+    primaryKey: [ticket_id, label_id]
+    indexes:
+      - { columns: [ticket_id] }
+      - { columns: [label_id] }
+
+  comments:
+    description: Comentarios en tickets, soportan markdown y adjuntos
+    columns:
+      id:          { type: VARCHAR(36), primaryKey: true, default: UUID() }
+      ticket_id:   { type: VARCHAR(36), nullable: false, references: tickets.id, onDelete: CASCADE }
+      author_id:   { type: VARCHAR(36), nullable: false, references: users.id }
+      body:        { type: TEXT, nullable: false }
+      archived_at: { type: DATETIME, nullable: true }
+      created_at:  { type: DATETIME, nullable: false, default: CURRENT_TIMESTAMP }
+      updated_at:  { type: DATETIME, nullable: false, default: CURRENT_TIMESTAMP, onUpdate: CURRENT_TIMESTAMP }
+    indexes:
+      - { columns: [ticket_id] }
+      - { columns: [author_id] }
+      - { columns: [archived_at] }
+
+  attachments:
+    description: Archivos adjuntos de comentarios, almacenados en disco local
+    columns:
+      id:            { type: VARCHAR(36), primaryKey: true, default: UUID() }
+      comment_id:    { type: VARCHAR(36), nullable: false, references: comments.id, onDelete: CASCADE }
+      filename:      { type: VARCHAR(255), nullable: false, description: Nombre generado en disco }
+      original_name: { type: VARCHAR(255), nullable: false, description: Nombre original del archivo }
+      mime_type:     { type: VARCHAR(100), nullable: false }
+      size:          { type: INT UNSIGNED, nullable: false, description: Tamaño en bytes }
+      path:          { type: VARCHAR(500), nullable: false, description: Ruta relativa en disco }
+      archived_at:   { type: DATETIME, nullable: true }
+      created_at:    { type: DATETIME, nullable: false, default: CURRENT_TIMESTAMP }
+    indexes:
+      - { columns: [comment_id] }
+      - { columns: [archived_at] }
+
+relationships:
+  - users          "1:N" refresh_tokens   (un usuario tiene muchos refresh tokens)
+  - users          "1:N" labels           (un usuario crea muchas etiquetas)
+  - users          "1:N" tickets          (un usuario crea muchos tickets)
+  - users          "N:M" tickets          via ticket_assignees (asignados)
+  - labels         "N:M" tickets          via ticket_labels
+  - tickets        "1:N" comments         (un ticket tiene muchos comentarios)
+  - comments       "1:N" attachments      (un comentario tiene muchos adjuntos)
