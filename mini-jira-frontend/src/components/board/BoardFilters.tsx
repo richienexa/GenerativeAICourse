@@ -4,6 +4,7 @@ import { useLabels } from '@/hooks/useLabels'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { X } from 'lucide-react'
+import type { TicketPriority } from '@/types'
 
 export function BoardFilters() {
   const { filters, patchFilters, clearFilters } = useBoardStore()
@@ -31,8 +32,8 @@ export function BoardFilters() {
 
       {/* Priority */}
       <Select
-        value={filters.priority?.[0] ?? ''}
-        onValueChange={(v) => patchFilters({ priority: v ? [v as never] : undefined })}
+        value={filters.priority ?? ''}
+        onValueChange={(v) => patchFilters({ priority: (v as TicketPriority) || undefined })}
       >
         <SelectTrigger className="w-32">
           <SelectValue placeholder="Prioridad" />

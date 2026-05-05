@@ -72,7 +72,7 @@ export interface MetricsFilters {
 
 export interface BoardFilters {
   status?: TicketStatus[]
-  priority?: TicketPriority[]
+  priority?: TicketPriority
   assignee_id?: string
   label?: string
   from?: string

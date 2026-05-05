@@ -1,4 +1,4 @@
-import { useOptimistic, useTransition } from 'react'
+import { useOptimistic, useTransition, useEffect } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { KanbanColumn } from './KanbanColumn'
 import { TicketCard } from './TicketCard'
 import { useTickets, TICKETS_KEY } from '@/hooks/useTickets'
+import { useBoardStore } from '@/store/boardStore'
 import { updateTicket } from '@/api/tickets'
 import type { Ticket, TicketStatus } from '@/types'
 
@@ -28,6 +29,11 @@ const VALID_STATUSES = new Set<string>(['todo', 'in_progress', 'review', 'done']
 
 export function KanbanBoard() {
   const [page, setPage] = useState(1)
+  const filters = useBoardStore((s) => s.filters)
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => { setPage(1) }, [filters])
+
   const { data: ticketsPage, isLoading } = useTickets(page)
   const tickets: Ticket[] = ticketsPage?.data ?? []
   const limit = ticketsPage?.limit ?? 50
