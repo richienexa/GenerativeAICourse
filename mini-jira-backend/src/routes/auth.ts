@@ -1,18 +1,36 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { eq, gt } from 'drizzle-orm';
+import { eq, and, lte } from 'drizzle-orm';
 import { db } from '../db';
 import { users, refreshTokens } from '../db/schema';
 import { verifyToken } from '../middleware/auth';
 import { loginSchema } from '../validators/auth';
 import { ZodError } from 'zod';
+import rateLimit from 'express-rate-limit';
 
 const router = Router();
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later' },
+});
+
+const refreshLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many refresh attempts, please try again later' },
+});
+
 // POST /api/auth/login
-router.post('/login', async (req: Request, res: Response): Promise<void> => {
+router.post('/login', loginLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const data = loginSchema.parse(req.body);
 
@@ -25,12 +43,14 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     const user = userRows[0];
 
     if (!user || user.archivedAt !== null) {
+      console.warn(JSON.stringify({ event: 'login_failed', reason: 'user_not_found', ip: req.ip, ts: new Date().toISOString() }));
       res.status(401).json({ error: 'Invalid email or password' });
       return;
     }
 
     const passwordValid = await bcrypt.compare(data.password, user.passwordHash);
     if (!passwordValid) {
+      console.warn(JSON.stringify({ event: 'login_failed', reason: 'invalid_password', userId: user.id, ip: req.ip, ts: new Date().toISOString() }));
       res.status(401).json({ error: 'Invalid email or password' });
       return;
     }
@@ -48,10 +68,15 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       { expiresIn: '30m' },
     );
 
-    // Refresh token
+    // Refresh token — SHA-256 para lookup O(1) (el token ya es aleatorio de 128 bits)
     const rawRefreshToken = uuidv4();
-    const tokenHash = await bcrypt.hash(rawRefreshToken, 10);
+    const tokenHash = createHash('sha256').update(rawRefreshToken).digest('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    // Limpiar tokens expirados del usuario antes de insertar el nuevo
+    await db.delete(refreshTokens).where(
+      and(eq(refreshTokens.userId, user.id), lte(refreshTokens.expiresAt, new Date())),
+    );
 
     await db.insert(refreshTokens).values({
       id: uuidv4(),
@@ -62,8 +87,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     res.cookie('refreshToken', rawRefreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: 'strict',
       expires: expiresAt,
       path: '/',
     });
@@ -90,7 +115,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 });
 
 // POST /api/auth/refresh
-router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
+router.post('/refresh', refreshLimiter, async (req: Request, res: Response): Promise<void> => {
   const rawToken = req.cookies?.refreshToken as string | undefined;
 
   if (!rawToken) {
@@ -98,24 +123,18 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
+  const hash = createHash('sha256').update(rawToken).digest('hex');
   const now = new Date();
 
-  // Find all non-expired refresh tokens and check bcrypt
   const tokenRows = await db
     .select()
     .from(refreshTokens)
-    .where(gt(refreshTokens.expiresAt, now));
+    .where(eq(refreshTokens.tokenHash, hash))
+    .limit(1);
 
-  let matchedToken: (typeof tokenRows)[0] | null = null;
-  for (const row of tokenRows) {
-    const match = await bcrypt.compare(rawToken, row.tokenHash);
-    if (match) {
-      matchedToken = row;
-      break;
-    }
-  }
+  const matchedToken = tokenRows[0];
 
-  if (!matchedToken) {
+  if (!matchedToken || matchedToken.expiresAt < now) {
     res.status(401).json({ error: 'Invalid or expired refresh token' });
     return;
   }
@@ -144,6 +163,27 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     { expiresIn: '30m' },
   );
 
+  // Rotar el refresh token: eliminar el viejo, emitir uno nuevo
+  const newRawRefreshToken = uuidv4();
+  const newTokenHash = createHash('sha256').update(newRawRefreshToken).digest('hex');
+  const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, hash));
+  await db.insert(refreshTokens).values({
+    id: uuidv4(),
+    userId: user.id,
+    tokenHash: newTokenHash,
+    expiresAt: newExpiresAt,
+  });
+
+  res.cookie('refreshToken', newRawRefreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV !== 'development',
+    sameSite: 'strict',
+    expires: newExpiresAt,
+    path: '/',
+  });
+
   res.json({ accessToken });
 });
 
@@ -155,21 +195,8 @@ router.post(
     const rawToken = req.cookies?.refreshToken as string | undefined;
 
     if (rawToken) {
-      // Find and delete matching refresh token
-      const tokenRows = await db
-        .select()
-        .from(refreshTokens)
-        .where(eq(refreshTokens.userId, req.user!.sub));
-
-      for (const row of tokenRows) {
-        const match = await bcrypt.compare(rawToken, row.tokenHash);
-        if (match) {
-          await db
-            .delete(refreshTokens)
-            .where(eq(refreshTokens.id, row.id));
-          break;
-        }
-      }
+      const hash = createHash('sha256').update(rawToken).digest('hex');
+      await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, hash));
     }
 
     res.clearCookie('refreshToken', { path: '/' });

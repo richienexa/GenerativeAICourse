@@ -7,6 +7,7 @@ import { db } from '../db';
 import { comments, attachments, users, tickets } from '../db/schema';
 import { verifyToken } from '../middleware/auth';
 import { upload } from '../middleware/upload';
+import { validateParam } from '../middleware/validateUuid';
 import { createCommentSchema } from '../validators/comments';
 
 // Type alias for an attachment row
@@ -178,6 +179,7 @@ export const commentDeleteRouter = Router();
 commentDeleteRouter.delete(
   '/:id',
   verifyToken,
+  validateParam('id'),
   async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
 

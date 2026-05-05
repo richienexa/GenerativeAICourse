@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
+import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -25,6 +26,8 @@ if (!fs.existsSync(uploadDir)) {
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
+app.use(helmet());
+
 app.use(
   cors({
     origin: process.env.CLIENT_URL ?? 'http://localhost:5173',
@@ -32,12 +35,16 @@ app.use(
   }),
 );
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50kb' }));
+app.use(express.urlencoded({ extended: true, limit: '50kb' }));
 app.use(cookieParser());
 
-// Serve uploaded files statically
-app.use('/uploads', express.static(uploadDir));
+// Serve uploaded files — force download, never render in browser
+app.use('/uploads', (_req, res, next) => {
+  res.setHeader('Content-Disposition', 'attachment');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+}, express.static(uploadDir));
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
@@ -71,7 +78,7 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     return;
   }
 
-  console.error('Unhandled error:', err);
+  console.error(JSON.stringify({ event: 'unhandled_error', message: err instanceof Error ? err.message : String(err), ts: new Date().toISOString() }));
 
   res.status(500).json({ error: 'Internal server error' });
 });

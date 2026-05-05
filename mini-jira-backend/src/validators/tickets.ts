@@ -5,7 +5,7 @@ const priorityEnum = z.enum(['low', 'medium', 'high']);
 
 export const createTicketSchema = z.object({
   title: z.string().min(1, 'Title is required').max(120, 'Title too long'),
-  description: z.string().optional().nullable(),
+  description: z.string().max(10000).optional().nullable(),
   status: statusEnum.default('todo'),
   priority: priorityEnum.default('medium'),
   is_blocked: z.boolean().default(false),
@@ -17,7 +17,7 @@ export const createTicketSchema = z.object({
 
 export const updateTicketSchema = z.object({
   title: z.string().min(1).max(120).optional(),
-  description: z.string().optional().nullable(),
+  description: z.string().max(10000).optional().nullable(),
   status: statusEnum.optional(),
   priority: priorityEnum.optional(),
   is_blocked: z.boolean().optional(),
@@ -35,6 +35,8 @@ export const ticketQuerySchema = z.object({
   label: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 export type CreateTicketInput = z.infer<typeof createTicketSchema>;

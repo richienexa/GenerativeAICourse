@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { db } from '../db';
+import { users } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
 export interface JwtPayload {
   sub: string;
@@ -16,11 +19,11 @@ declare global {
   }
 }
 
-export function verifyToken(
+export async function verifyToken(
   req: Request,
   res: Response,
   next: NextFunction,
-): void {
+): Promise<void> {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -38,7 +41,20 @@ export function verifyToken(
 
   try {
     const payload = jwt.verify(token, secret) as JwtPayload;
-    req.user = payload;
+
+    const userRows = await db
+      .select({ id: users.id, role: users.role, archivedAt: users.archivedAt })
+      .from(users)
+      .where(eq(users.id, payload.sub))
+      .limit(1);
+
+    const user = userRows[0];
+    if (!user || user.archivedAt !== null) {
+      res.status(401).json({ error: 'User not found or deactivated' });
+      return;
+    }
+
+    req.user = { ...payload, role: user.role };
     next();
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });

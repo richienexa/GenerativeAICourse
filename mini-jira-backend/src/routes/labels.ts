@@ -5,6 +5,8 @@ import { ZodError } from 'zod';
 import { db } from '../db';
 import { labels } from '../db/schema';
 import { verifyToken } from '../middleware/auth';
+import { requireAdmin } from '../middleware/requireAdmin';
+import { validateParam } from '../middleware/validateUuid';
 import { createLabelSchema } from '../validators/labels';
 
 const router = Router();
@@ -20,7 +22,7 @@ router.get('/', verifyToken, async (_req: Request, res: Response): Promise<void>
 });
 
 // POST /api/labels
-router.post('/', verifyToken, async (req: Request, res: Response): Promise<void> => {
+router.post('/', verifyToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const data = createLabelSchema.parse(req.body);
 
@@ -51,7 +53,7 @@ router.post('/', verifyToken, async (req: Request, res: Response): Promise<void>
 });
 
 // DELETE /api/labels/:id
-router.delete('/:id', verifyToken, async (req: Request, res: Response): Promise<void> => {
+router.delete('/:id', verifyToken, requireAdmin, validateParam('id'), async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
 
   const existing = await db

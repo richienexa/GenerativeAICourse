@@ -11,6 +11,7 @@ import {
   labels,
 } from '../db/schema';
 import { verifyToken } from '../middleware/auth';
+import { validateParam } from '../middleware/validateUuid';
 import {
   createTicketSchema,
   updateTicketSchema,
@@ -46,40 +47,24 @@ function toTicketResponse(ticket: Record<string, unknown> & {
 
 // Helper: fetch full ticket with assignees and labels
 async function getTicketWithRelations(ticketId: string) {
-  const ticketRows = await db
-    .select()
-    .from(tickets)
-    .where(and(eq(tickets.id, ticketId), isNull(tickets.archivedAt)))
-    .limit(1);
+  const [ticketRows, assigneeRows, labelRows] = await Promise.all([
+    db.select().from(tickets)
+      .where(and(eq(tickets.id, ticketId), isNull(tickets.archivedAt)))
+      .limit(1),
+    db.select({ id: users.id, name: users.name, email: users.email, role: users.role })
+      .from(ticketAssignees)
+      .innerJoin(users, eq(ticketAssignees.userId, users.id))
+      .where(eq(ticketAssignees.ticketId, ticketId)),
+    db.select({ id: labels.id, name: labels.name })
+      .from(ticketLabels)
+      .innerJoin(labels, eq(ticketLabels.labelId, labels.id))
+      .where(eq(ticketLabels.ticketId, ticketId)),
+  ]);
 
   const ticket = ticketRows[0];
   if (!ticket) return null;
 
-  const assigneeRows = await db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      role: users.role,
-    })
-    .from(ticketAssignees)
-    .innerJoin(users, eq(ticketAssignees.userId, users.id))
-    .where(eq(ticketAssignees.ticketId, ticketId));
-
-  const labelRows = await db
-    .select({
-      id: labels.id,
-      name: labels.name,
-    })
-    .from(ticketLabels)
-    .innerJoin(labels, eq(ticketLabels.labelId, labels.id))
-    .where(eq(ticketLabels.ticketId, ticketId));
-
-  return {
-    ...ticket,
-    assignees: assigneeRows,
-    labels: labelRows,
-  };
+  return { ...ticket, assignees: assigneeRows, labels: labelRows };
 }
 
 // GET /api/tickets
@@ -106,10 +91,15 @@ router.get('/', verifyToken, async (req: Request, res: Response): Promise<void> 
       conditions.push(lte(tickets.createdAt, new Date(query.to)));
     }
 
+    const { page, limit } = query;
+    const offset = (page - 1) * limit;
+
     let ticketRows = await db
       .select()
       .from(tickets)
-      .where(and(...conditions));
+      .where(and(...conditions))
+      .limit(limit)
+      .offset(offset);
 
     // Filter by assignee_id
     if (query.assignee_id) {
@@ -187,7 +177,7 @@ router.get('/', verifyToken, async (req: Request, res: Response): Promise<void> 
       }),
     );
 
-    res.json(result);
+    res.json({ data: result, page, limit });
   } catch (err) {
     if (err instanceof ZodError) {
       res.status(400).json({ error: 'Validation error', details: err.errors });
@@ -198,7 +188,7 @@ router.get('/', verifyToken, async (req: Request, res: Response): Promise<void> 
 });
 
 // GET /api/tickets/:id
-router.get('/:id', verifyToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/:id', verifyToken, validateParam('id'), async (req: Request, res: Response): Promise<void> => {
   const ticket = await getTicketWithRelations(req.params.id);
   if (!ticket) {
     res.status(404).json({ error: 'Ticket not found' });
@@ -227,17 +217,14 @@ router.post('/', verifyToken, async (req: Request, res: Response): Promise<void>
       updatedAt: now,
     });
 
-    // Insert assignees
-    await db.insert(ticketAssignees).values(
-      data.assignee_ids.map((userId) => ({ ticketId, userId })),
-    );
-
-    // Insert labels
-    if (data.label_ids && data.label_ids.length > 0) {
-      await db.insert(ticketLabels).values(
-        data.label_ids.map((labelId) => ({ ticketId, labelId })),
-      );
-    }
+    await Promise.all([
+      db.insert(ticketAssignees).values(
+        data.assignee_ids.map((userId) => ({ ticketId, userId })),
+      ),
+      ...(data.label_ids && data.label_ids.length > 0
+        ? [db.insert(ticketLabels).values(data.label_ids.map((labelId) => ({ ticketId, labelId })))]
+        : []),
+    ]);
 
     const created = await getTicketWithRelations(ticketId);
     res.status(201).json(toTicketResponse(created!));
@@ -251,7 +238,7 @@ router.post('/', verifyToken, async (req: Request, res: Response): Promise<void>
 });
 
 // PATCH /api/tickets/:id
-router.patch('/:id', verifyToken, async (req: Request, res: Response): Promise<void> => {
+router.patch('/:id', verifyToken, validateParam('id'), async (req: Request, res: Response): Promise<void> => {
   try {
     const data = updateTicketSchema.parse(req.body);
     const { id } = req.params;
@@ -267,6 +254,13 @@ router.patch('/:id', verifyToken, async (req: Request, res: Response): Promise<v
       return;
     }
 
+    const isOwner = existing[0].createdById === req.user!.sub;
+    const isAdmin = req.user!.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      res.status(403).json({ error: 'You do not have permission to modify this ticket' });
+      return;
+    }
+
     const updateValues: Record<string, unknown> = { updatedAt: new Date() };
     if (data.title !== undefined) updateValues.title = data.title;
     if (data.description !== undefined) updateValues.description = data.description;
@@ -274,25 +268,25 @@ router.patch('/:id', verifyToken, async (req: Request, res: Response): Promise<v
     if (data.priority !== undefined) updateValues.priority = data.priority;
     if (data.is_blocked !== undefined) updateValues.isBlocked = data.is_blocked;
 
-    await db.update(tickets).set(updateValues).where(eq(tickets.id, id));
+    await Promise.all([
+      db.update(tickets).set(updateValues).where(eq(tickets.id, id)),
+      ...(data.assignee_ids !== undefined
+        ? [db.delete(ticketAssignees).where(eq(ticketAssignees.ticketId, id))]
+        : []),
+      ...(data.label_ids !== undefined
+        ? [db.delete(ticketLabels).where(eq(ticketLabels.ticketId, id))]
+        : []),
+    ]);
 
-    // Replace assignees
-    if (data.assignee_ids !== undefined) {
-      await db.delete(ticketAssignees).where(eq(ticketAssignees.ticketId, id));
-      await db.insert(ticketAssignees).values(
-        data.assignee_ids.map((userId) => ({ ticketId: id, userId })),
-      );
-    }
-
-    // Replace labels
-    if (data.label_ids !== undefined) {
-      await db.delete(ticketLabels).where(eq(ticketLabels.ticketId, id));
-      if (data.label_ids.length > 0) {
-        await db.insert(ticketLabels).values(
-          data.label_ids.map((labelId) => ({ ticketId: id, labelId })),
-        );
-      }
-    }
+    // Insert replacements after deletes complete
+    await Promise.all([
+      ...(data.assignee_ids !== undefined && data.assignee_ids.length > 0
+        ? [db.insert(ticketAssignees).values(data.assignee_ids.map((userId) => ({ ticketId: id, userId })))]
+        : []),
+      ...(data.label_ids !== undefined && data.label_ids.length > 0
+        ? [db.insert(ticketLabels).values(data.label_ids.map((labelId) => ({ ticketId: id, labelId })))]
+        : []),
+    ]);
 
     const updated = await getTicketWithRelations(id);
     res.json(toTicketResponse(updated!));
@@ -306,7 +300,7 @@ router.patch('/:id', verifyToken, async (req: Request, res: Response): Promise<v
 });
 
 // DELETE /api/tickets/:id
-router.delete('/:id', verifyToken, async (req: Request, res: Response): Promise<void> => {
+router.delete('/:id', verifyToken, validateParam('id'), async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
 
   const existing = await db
@@ -317,6 +311,13 @@ router.delete('/:id', verifyToken, async (req: Request, res: Response): Promise<
 
   if (!existing[0]) {
     res.status(404).json({ error: 'Ticket not found' });
+    return;
+  }
+
+  const isOwner = existing[0].createdById === req.user!.sub;
+  const isAdmin = req.user!.role === 'admin';
+  if (!isOwner && !isAdmin) {
+    res.status(403).json({ error: 'You do not have permission to delete this ticket' });
     return;
   }
 

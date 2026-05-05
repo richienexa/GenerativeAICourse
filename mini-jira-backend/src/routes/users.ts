@@ -5,6 +5,7 @@ import { db } from '../db';
 import { users } from '../db/schema';
 import { verifyToken } from '../middleware/auth';
 import { requireAdmin } from '../middleware/requireAdmin';
+import { validateParam } from '../middleware/validateUuid';
 import { updateUserSchema } from '../validators/users';
 
 const router = Router();
@@ -31,6 +32,7 @@ router.patch(
   '/:id',
   verifyToken,
   requireAdmin,
+  validateParam('id'),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
