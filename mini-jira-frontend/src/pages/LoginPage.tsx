@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { login } from '@/api/auth'
 
@@ -24,8 +25,18 @@ export function LoginPage() {
     try {
       const { user, accessToken } = await login(email, password)
       setAuth(user, accessToken)
-    } catch {
-      setError('Email o contraseña incorrectos')
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        if (!err.response) {
+          setError('No se puede conectar al servidor. Verifica que el backend esté corriendo.')
+        } else if (err.response.status === 401) {
+          setError('Email o contraseña incorrectos')
+        } else {
+          setError(`Error del servidor: ${err.response.data?.error ?? err.message}`)
+        }
+      } else {
+        setError('Error inesperado. Intenta de nuevo.')
+      }
     } finally {
       setLoading(false)
     }

@@ -7,11 +7,12 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'
 // Instancia principal — todas las peticiones de la app usan esta
 export const client = axios.create({
   baseURL: BASE_URL,
+  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 })
 
 // Instancia sin interceptores para el refresh — evita bucle infinito
-const rawClient = axios.create({ baseURL: BASE_URL })
+const rawClient = axios.create({ baseURL: BASE_URL, withCredentials: true })
 
 // ── EC-A: cola de peticiones mientras el refresh está en vuelo ──
 let isRefreshing = false
