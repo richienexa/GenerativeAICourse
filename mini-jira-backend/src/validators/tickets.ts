@@ -9,6 +9,7 @@ export const createTicketSchema = z.object({
   status: statusEnum.default('todo'),
   priority: priorityEnum.default('medium'),
   is_blocked: z.boolean().default(false),
+  due_date: z.string().datetime({ offset: true }).optional().nullable(),
   assignee_ids: z
     .array(z.string().uuid('Invalid assignee ID'))
     .min(1, 'At least one assignee is required'),
@@ -21,6 +22,7 @@ export const updateTicketSchema = z.object({
   status: statusEnum.optional(),
   priority: priorityEnum.optional(),
   is_blocked: z.boolean().optional(),
+  due_date: z.string().datetime({ offset: true }).optional().nullable(),
   assignee_ids: z.array(z.string().uuid('Invalid assignee ID')).optional(),
   label_ids: z.array(z.string().uuid('Invalid label ID')).optional(),
 });
@@ -33,6 +35,7 @@ export const ticketQuerySchema = z.object({
   priority: priorityEnum.optional(),
   assignee_id: z.string().uuid().optional(),
   label: z.string().optional(),
+  search: z.string().max(200).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),

@@ -64,6 +64,10 @@ export function setupMocks() {
       if (params?.priority) result = result.filter((t) => t.priority === params.priority)
       if (params?.assignee_id) result = result.filter((t) => t.assignees.some((a) => a.id === params.assignee_id))
       if (params?.label) result = result.filter((t) => t.labels.includes(params.label))
+      if (params?.search) {
+        const q = params.search.toLowerCase()
+        result = result.filter((t) => t.title.toLowerCase().includes(q) || (t.description?.toLowerCase().includes(q) ?? false))
+      }
       const page = Number(params?.page ?? 1)
       const limit = Number(params?.limit ?? 50)
       const paged = result.slice((page - 1) * limit, page * limit)
@@ -79,6 +83,7 @@ export function setupMocks() {
         status: 'todo',
         priority: body.priority,
         is_blocked: false,
+        due_date: body.due_date ?? null,
         created_by: mockUser.id,
         archived_at: null,
         created_at: new Date().toISOString(),
@@ -132,8 +137,10 @@ export function setupMocks() {
           ticket_id: ticketId,
           author: mockUser,
           body: body.body,
+          edited_at: null,
           archived_at: null,
           created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         }
         comments.push(newComment)
         return ok(newComment, config)
@@ -141,10 +148,25 @@ export function setupMocks() {
     }
 
     const commentMatch = url.match(/^\/comments\/(.+)$/)
-    if (commentMatch && method === 'delete') {
+    if (commentMatch) {
       const idx = comments.findIndex((c) => c.id === commentMatch[1])
-      if (idx !== -1) comments[idx] = { ...comments[idx], archived_at: new Date().toISOString() }
-      return ok({}, config)
+      if (method === 'delete') {
+        if (idx !== -1) comments[idx] = { ...comments[idx], archived_at: new Date().toISOString() }
+        return ok({}, config)
+      }
+      if (method === 'patch') {
+        if (idx !== -1) {
+          const now = new Date().toISOString()
+          comments[idx] = { ...comments[idx], body: body.body, edited_at: now, updated_at: now }
+        }
+        return ok(comments[idx !== -1 ? idx : 0], config)
+      }
+    }
+
+    // Activity log mock
+    const activityMatch = url.match(/^\/tickets\/([^/]+)\/activity$/)
+    if (activityMatch && method === 'get') {
+      return ok([], config)
     }
 
     // ── Metrics ──────────────────────────────────────────────────────────────

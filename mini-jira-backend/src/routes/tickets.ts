@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { eq, and, isNull, inArray, gte, lte } from 'drizzle-orm';
+import { eq, and, isNull, inArray, gte, lte, like, or } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { ZodError } from 'zod';
 import { db } from '../db';
@@ -9,9 +9,11 @@ import {
   ticketLabels,
   users,
   labels,
+  activityLogs,
 } from '../db/schema';
 import { verifyToken } from '../middleware/auth';
 import { validateParam } from '../middleware/validateUuid';
+import { broadcastBoardUpdate } from './sse';
 import {
   createTicketSchema,
   updateTicketSchema,
@@ -22,6 +24,7 @@ const router = Router();
 
 function toTicketResponse(ticket: Record<string, unknown> & {
   isBlocked: boolean;
+  dueDate: Date | null;
   createdById: string | null;
   archivedAt: Date | null;
   createdAt: Date;
@@ -36,6 +39,7 @@ function toTicketResponse(ticket: Record<string, unknown> & {
     status: ticket.status,
     priority: ticket.priority,
     is_blocked: ticket.isBlocked,
+    due_date: ticket.dueDate ? (ticket.dueDate as Date).toISOString() : null,
     created_by: ticket.createdById,
     archived_at: ticket.archivedAt,
     created_at: ticket.createdAt,
@@ -45,7 +49,6 @@ function toTicketResponse(ticket: Record<string, unknown> & {
   };
 }
 
-// Helper: fetch full ticket with assignees and labels
 async function getTicketWithRelations(ticketId: string) {
   const [ticketRows, assigneeRows, labelRows] = await Promise.all([
     db.select().from(tickets)
@@ -67,12 +70,30 @@ async function getTicketWithRelations(ticketId: string) {
   return { ...ticket, assignees: assigneeRows, labels: labelRows };
 }
 
+async function logActivity(
+  ticketId: string,
+  userId: string,
+  action: string,
+  field?: string,
+  oldValue?: string | null,
+  newValue?: string | null,
+) {
+  await db.insert(activityLogs).values({
+    id: uuidv4(),
+    ticketId,
+    userId,
+    action,
+    field: field ?? null,
+    oldValue: oldValue ?? null,
+    newValue: newValue ?? null,
+  });
+}
+
 // GET /api/tickets
 router.get('/', verifyToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const query = ticketQuerySchema.parse(req.query);
 
-    // Build filters
     const conditions = [isNull(tickets.archivedAt)];
 
     if (query.status && query.status.length > 0) {
@@ -91,7 +112,11 @@ router.get('/', verifyToken, async (req: Request, res: Response): Promise<void> 
       conditions.push(lte(tickets.createdAt, new Date(query.to)));
     }
 
-    // Resolve assignee/label filters to ticket ID sets BEFORE pagination
+    if (query.search) {
+      const pattern = `%${query.search}%`;
+      conditions.push(or(like(tickets.title, pattern), like(tickets.description, pattern))!);
+    }
+
     if (query.assignee_id) {
       const rows = await db
         .select({ ticketId: ticketAssignees.ticketId })
@@ -143,7 +168,6 @@ router.get('/', verifyToken, async (req: Request, res: Response): Promise<void> 
 
     const ticketIds = ticketRows.map((t) => t.id);
 
-    // Batch fetch assignees
     const allAssignees = await db
       .select({
         ticketId: ticketAssignees.ticketId,
@@ -156,7 +180,6 @@ router.get('/', verifyToken, async (req: Request, res: Response): Promise<void> 
       .innerJoin(users, eq(ticketAssignees.userId, users.id))
       .where(inArray(ticketAssignees.ticketId, ticketIds));
 
-    // Batch fetch labels
     const allLabels = await db
       .select({
         ticketId: ticketLabels.ticketId,
@@ -214,6 +237,7 @@ router.post('/', verifyToken, async (req: Request, res: Response): Promise<void>
       status: data.status,
       priority: data.priority,
       isBlocked: data.is_blocked,
+      dueDate: data.due_date ? new Date(data.due_date) : null,
       createdById: req.user!.sub,
       createdAt: now,
       updatedAt: now,
@@ -228,8 +252,12 @@ router.post('/', verifyToken, async (req: Request, res: Response): Promise<void>
         : []),
     ]);
 
+    await logActivity(ticketId, req.user!.sub, 'created');
+
     const created = await getTicketWithRelations(ticketId);
-    res.status(201).json(toTicketResponse(created!));
+    const createdResponse = toTicketResponse(created!);
+    broadcastBoardUpdate('ticket:created', createdResponse);
+    res.status(201).json(createdResponse);
   } catch (err) {
     if (err instanceof ZodError) {
       res.status(400).json({ error: 'Validation error', details: err.errors });
@@ -264,11 +292,25 @@ router.patch('/:id', verifyToken, validateParam('id'), async (req: Request, res:
     }
 
     const updateValues: Record<string, unknown> = { updatedAt: new Date() };
-    if (data.title !== undefined) updateValues.title = data.title;
+    const activityEntries: Array<{ field: string; oldValue: string; newValue: string }> = [];
+
+    if (data.title !== undefined && data.title !== existing[0].title) {
+      activityEntries.push({ field: 'title', oldValue: existing[0].title, newValue: data.title });
+      updateValues.title = data.title;
+    }
     if (data.description !== undefined) updateValues.description = data.description;
-    if (data.status !== undefined) updateValues.status = data.status;
-    if (data.priority !== undefined) updateValues.priority = data.priority;
+    if (data.status !== undefined && data.status !== existing[0].status) {
+      activityEntries.push({ field: 'status', oldValue: existing[0].status, newValue: data.status });
+      updateValues.status = data.status;
+    }
+    if (data.priority !== undefined && data.priority !== existing[0].priority) {
+      activityEntries.push({ field: 'priority', oldValue: existing[0].priority, newValue: data.priority });
+      updateValues.priority = data.priority;
+    }
     if (data.is_blocked !== undefined) updateValues.isBlocked = data.is_blocked;
+    if (data.due_date !== undefined) {
+      updateValues.dueDate = data.due_date ? new Date(data.due_date) : null;
+    }
 
     await Promise.all([
       db.update(tickets).set(updateValues).where(eq(tickets.id, id)),
@@ -280,7 +322,6 @@ router.patch('/:id', verifyToken, validateParam('id'), async (req: Request, res:
         : []),
     ]);
 
-    // Insert replacements after deletes complete
     await Promise.all([
       ...(data.assignee_ids !== undefined && data.assignee_ids.length > 0
         ? [db.insert(ticketAssignees).values(data.assignee_ids.map((userId) => ({ ticketId: id, userId })))]
@@ -290,8 +331,16 @@ router.patch('/:id', verifyToken, validateParam('id'), async (req: Request, res:
         : []),
     ]);
 
+    await Promise.all(
+      activityEntries.map((e) =>
+        logActivity(id, req.user!.sub, 'updated', e.field, e.oldValue, e.newValue),
+      ),
+    );
+
     const updated = await getTicketWithRelations(id);
-    res.json(toTicketResponse(updated!));
+    const updatedResponse = toTicketResponse(updated!);
+    broadcastBoardUpdate('ticket:updated', updatedResponse);
+    res.json(updatedResponse);
   } catch (err) {
     if (err instanceof ZodError) {
       res.status(400).json({ error: 'Validation error', details: err.errors });
@@ -328,7 +377,43 @@ router.delete('/:id', verifyToken, validateParam('id'), async (req: Request, res
     .set({ archivedAt: new Date() })
     .where(eq(tickets.id, id));
 
+  broadcastBoardUpdate('ticket:deleted', { id });
   res.status(204).send();
+});
+
+// GET /api/tickets/:id/activity
+router.get('/:id/activity', verifyToken, validateParam('id'), async (req: Request, res: Response): Promise<void> => {
+  const ticket = await db
+    .select()
+    .from(tickets)
+    .where(and(eq(tickets.id, req.params.id), isNull(tickets.archivedAt)))
+    .limit(1);
+
+  if (!ticket[0]) {
+    res.status(404).json({ error: 'Ticket not found' });
+    return;
+  }
+
+  const logs = await db
+    .select({
+      id: activityLogs.id,
+      action: activityLogs.action,
+      field: activityLogs.field,
+      oldValue: activityLogs.oldValue,
+      newValue: activityLogs.newValue,
+      createdAt: activityLogs.createdAt,
+      user: {
+        id: users.id,
+        name: users.name,
+        email: users.email,
+      },
+    })
+    .from(activityLogs)
+    .innerJoin(users, eq(activityLogs.userId, users.id))
+    .where(eq(activityLogs.ticketId, req.params.id))
+    .orderBy(activityLogs.createdAt);
+
+  res.json(logs);
 });
 
 export default router;

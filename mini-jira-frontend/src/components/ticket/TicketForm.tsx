@@ -42,6 +42,7 @@ export function TicketForm({ ticket, onClose }: TicketFormProps) {
       priority: ticket?.priority ?? 'medium',
       status: ticket?.status ?? 'todo',
       is_blocked: ticket?.is_blocked ?? false,
+      due_date: ticket?.due_date ? ticket.due_date.slice(0, 10) : '',
       assignee_ids: ticket?.assignees.map((a) => a.id) ?? [],
       labels: ticket?.labels ?? [],
     },
@@ -59,11 +60,15 @@ export function TicketForm({ ticket, onClose }: TicketFormProps) {
           title: values.title,
           description: values.description,
           priority: values.priority,
+          due_date: values.due_date ? new Date(values.due_date).toISOString() : null,
           assignee_ids: values.assignee_ids,
           labels: values.labels,
         })
       } else {
-        await updateMutation.mutateAsync({ ...values })
+        await updateMutation.mutateAsync({
+          ...values,
+          due_date: values.due_date ? new Date(values.due_date).toISOString() : null,
+        })
       }
       onClose()
     } catch (err: unknown) {
@@ -179,6 +184,17 @@ export function TicketForm({ ticket, onClose }: TicketFormProps) {
             </Select>
           </div>
         )}
+      </div>
+
+      {/* Due date */}
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="due_date">Fecha límite</Label>
+        <input
+          id="due_date"
+          type="date"
+          {...register('due_date')}
+          className="h-9 w-full rounded-lg border border-outline-variant/30 bg-surface px-2.5 text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+        />
       </div>
 
       {/* Blocked toggle */}

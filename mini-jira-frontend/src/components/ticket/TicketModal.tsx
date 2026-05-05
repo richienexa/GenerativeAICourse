@@ -8,6 +8,7 @@ import {
 import { TicketForm } from './TicketForm'
 import { CommentList } from './CommentList'
 import { CommentInput } from './CommentInput'
+import { ActivityLog } from './ActivityLog'
 import { useTicket } from '@/hooks/useTicket'
 
 interface TicketModalProps {
@@ -33,15 +34,24 @@ export function TicketModal({ ticketId, onClose }: TicketModalProps) {
           <TicketForm ticket={isNew ? undefined : ticket} onClose={onClose} />
 
           {!isNew && ticket && (
-            <div className="mt-8">
-              <p className="mb-3 text-[0.6875rem] font-medium uppercase tracking-[0.05em] text-on-surface-variant">
-                Comentarios
-              </p>
-              <CommentList ticketId={ticket.id} />
-              <div className="mt-4">
-                <CommentInput ticketId={ticket.id} />
+            <>
+              <div className="mt-8">
+                <p className="mb-3 text-[0.6875rem] font-medium uppercase tracking-[0.05em] text-on-surface-variant">
+                  Actividad
+                </p>
+                <ActivityLog ticketId={ticket.id} />
               </div>
-            </div>
+
+              <div className="mt-8">
+                <p className="mb-3 text-[0.6875rem] font-medium uppercase tracking-[0.05em] text-on-surface-variant">
+                  Comentarios
+                </p>
+                <CommentList ticketId={ticket.id} />
+                <div className="mt-4">
+                  <CommentInput ticketId={ticket.id} />
+                </div>
+              </div>
+            </>
           )}
         </DialogBody>
       </DialogContent>

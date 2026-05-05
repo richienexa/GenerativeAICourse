@@ -13,9 +13,11 @@ import rateLimit from 'express-rate-limit';
 
 const router = Router();
 
+const isTest = process.env.NODE_ENV === 'test';
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: isTest ? 1000 : 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts, please try again later' },
@@ -23,7 +25,7 @@ const loginLimiter = rateLimit({
 
 const refreshLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
-  max: 20,
+  max: isTest ? 1000 : 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many refresh attempts, please try again later' },

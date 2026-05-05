@@ -10,6 +10,7 @@ export const ticketSchema = z.object({
   priority: z.enum(['low', 'medium', 'high']),
   status: z.enum(['todo', 'in_progress', 'review', 'done']),
   is_blocked: z.boolean(),
+  due_date: z.string().optional(),
   assignee_ids: z.array(z.string().uuid()).optional(),
   labels: z
     .array(z.string().max(100))

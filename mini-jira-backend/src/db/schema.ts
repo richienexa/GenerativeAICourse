@@ -85,6 +85,7 @@ export const tickets = mysqlTable('tickets', {
     .default('medium')
     .notNull(),
   isBlocked: boolean('is_blocked').default(false).notNull(),
+  dueDate: datetime('due_date'),
   createdById: varchar('created_by_id', { length: 36 }).references(
     () => users.id,
   ),
@@ -103,6 +104,7 @@ export const ticketsRelations = relations(tickets, ({ one, many }) => ({
   assignees: many(ticketAssignees),
   labels: many(ticketLabels),
   comments: many(comments),
+  activityLogs: many(activityLogs),
 }));
 
 // ─── Ticket Assignees ─────────────────────────────────────────────────────────
@@ -173,6 +175,7 @@ export const comments = mysqlTable('comments', {
     .references(() => tickets.id, { onDelete: 'cascade' }),
   authorId: varchar('author_id', { length: 36 }).references(() => users.id),
   body: text('body').notNull(),
+  editedAt: datetime('edited_at'),
   archivedAt: datetime('archived_at'),
   createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: datetime('updated_at')
@@ -212,5 +215,31 @@ export const attachmentsRelations = relations(attachments, ({ one }) => ({
   comment: one(comments, {
     fields: [attachments.commentId],
     references: [comments.id],
+  }),
+}));
+
+// ─── Activity Logs ────────────────────────────────────────────────────────────
+
+export const activityLogs = mysqlTable('activity_logs', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  ticketId: varchar('ticket_id', { length: 36 })
+    .notNull()
+    .references(() => tickets.id, { onDelete: 'cascade' }),
+  userId: varchar('user_id', { length: 36 }).references(() => users.id),
+  action: varchar('action', { length: 50 }).notNull(),
+  field: varchar('field', { length: 100 }),
+  oldValue: text('old_value'),
+  newValue: text('new_value'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
+  ticket: one(tickets, {
+    fields: [activityLogs.ticketId],
+    references: [tickets.id],
+  }),
+  user: one(users, {
+    fields: [activityLogs.userId],
+    references: [users.id],
   }),
 }));

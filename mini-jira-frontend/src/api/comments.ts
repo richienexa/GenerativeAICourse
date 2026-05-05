@@ -14,6 +14,11 @@ export async function createComment(
   return data
 }
 
+export async function updateComment(commentId: string, body: string): Promise<Comment> {
+  const { data } = await client.patch<Comment>(`/comments/${commentId}`, { body })
+  return data
+}
+
 export async function archiveComment(commentId: string): Promise<void> {
   await client.delete(`/comments/${commentId}`)
 }
