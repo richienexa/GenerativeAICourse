@@ -6,10 +6,10 @@ import { useMetrics } from '@/hooks/useMetrics'
 import type { MetricsFilters } from '@/types'
 
 const today = new Date().toISOString().slice(0, 10)
-const firstOfMonth = `${today.slice(0, 7)}-01`
+const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
 export function MetricsPage() {
-  const [filters, setFilters] = useState<MetricsFilters>({ from: firstOfMonth, to: today })
+  const [filters, setFilters] = useState<MetricsFilters>({ from: threeMonthsAgo, to: today })
   const { data, isLoading } = useMetrics(filters)
 
   const isEmpty =
