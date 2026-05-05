@@ -2,8 +2,8 @@ import client from './client'
 import type { Ticket, CreateTicketPayload, UpdateTicketPayload, BoardFilters } from '@/types'
 
 export async function fetchTickets(filters: BoardFilters = {}): Promise<Ticket[]> {
-  const { data } = await client.get<Ticket[]>('/tickets', { params: filters })
-  return data
+  const { data } = await client.get<{ data: Ticket[] } | Ticket[]>('/tickets', { params: filters })
+  return Array.isArray(data) ? data : data.data
 }
 
 export async function fetchTicket(id: string): Promise<Ticket> {
