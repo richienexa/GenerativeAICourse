@@ -5,6 +5,7 @@ import { LoginPage } from '@/pages/LoginPage'
 import { BoardPage } from '@/pages/BoardPage'
 import { MetricsPage } from '@/pages/MetricsPage'
 import { AdminUsersPage } from '@/pages/AdminUsersPage'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 export const router = createBrowserRouter([
   {
@@ -18,9 +19,9 @@ export const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           { index: true, element: <Navigate to="/board" replace /> },
-          { path: '/board', element: <BoardPage /> },
-          { path: '/metrics', element: <MetricsPage /> },
-          { path: '/admin/users', element: <AdminUsersPage /> },
+          { path: '/board', element: <ErrorBoundary><BoardPage /></ErrorBoundary> },
+          { path: '/metrics', element: <ErrorBoundary><MetricsPage /></ErrorBoundary> },
+          { path: '/admin/users', element: <ErrorBoundary><AdminUsersPage /></ErrorBoundary> },
         ],
       },
     ],

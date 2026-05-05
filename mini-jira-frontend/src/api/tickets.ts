@@ -1,9 +1,15 @@
 import client from './client'
 import type { Ticket, CreateTicketPayload, UpdateTicketPayload, BoardFilters } from '@/types'
 
-export async function fetchTickets(filters: BoardFilters = {}): Promise<Ticket[]> {
-  const { data } = await client.get<{ data: Ticket[] } | Ticket[]>('/tickets', { params: filters })
-  return Array.isArray(data) ? data : data.data
+export interface TicketsPage {
+  data: Ticket[]
+  page: number
+  limit: number
+}
+
+export async function fetchTickets(filters: BoardFilters = {}, page = 1): Promise<TicketsPage> {
+  const { data } = await client.get<TicketsPage>('/tickets', { params: { ...filters, page } })
+  return data
 }
 
 export async function fetchTicket(id: string): Promise<Ticket> {

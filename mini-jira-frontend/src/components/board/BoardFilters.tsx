@@ -1,5 +1,6 @@
 import { useBoardStore } from '@/store/boardStore'
 import { useUsers } from '@/hooks/useUsers'
+import { useLabels } from '@/hooks/useLabels'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { X } from 'lucide-react'
@@ -7,7 +8,8 @@ import { X } from 'lucide-react'
 export function BoardFilters() {
   const { filters, patchFilters, clearFilters } = useBoardStore()
   const { data: users = [] } = useUsers()
-  const hasFilters = Object.keys(filters).some((k) => filters[k as keyof typeof filters] !== undefined)
+  const { data: labels = [] } = useLabels()
+  const hasFilters = Object.values(filters).some((v) => v !== undefined && v !== '')
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -58,6 +60,43 @@ export function BoardFilters() {
           ))}
         </SelectContent>
       </Select>
+
+      {/* Label */}
+      {labels.length > 0 && (
+        <Select
+          value={filters.label ?? ''}
+          onValueChange={(v) => patchFilters({ label: v || undefined })}
+        >
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="Etiqueta" />
+          </SelectTrigger>
+          <SelectContent>
+            {labels.map((l) => (
+              <SelectItem key={l.id} value={l.name}>
+                {l.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
+      {/* Date from */}
+      <input
+        type="date"
+        value={filters.from ?? ''}
+        onChange={(e) => patchFilters({ from: e.target.value || undefined })}
+        className="h-9 rounded-lg border border-outline-variant/30 bg-surface px-2.5 text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+        title="Desde"
+      />
+
+      {/* Date to */}
+      <input
+        type="date"
+        value={filters.to ?? ''}
+        onChange={(e) => patchFilters({ to: e.target.value || undefined })}
+        className="h-9 rounded-lg border border-outline-variant/30 bg-surface px-2.5 text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+        title="Hasta"
+      />
 
       {hasFilters && (
         <Button variant="ghost" size="sm" onClick={clearFilters}>

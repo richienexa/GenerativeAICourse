@@ -47,6 +47,7 @@ export function CommentInput({ ticketId }: CommentInputProps) {
           highlighter: {
             padding: '8px 12px',
           },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           suggestions: {
             list: {
               background: 'rgba(255,255,255,0.85)',
@@ -61,10 +62,8 @@ export function CommentInput({ ticketId }: CommentInputProps) {
               padding: '6px 12px',
               cursor: 'pointer',
             },
-            'item:hover': {
-              background: '#ebeef2',
-            },
-          },
+            'item:hover': { background: '#ebeef2' },
+          } as any,
         }}
         a11ySuggestionsListLabel="Usuarios del equipo"
       >

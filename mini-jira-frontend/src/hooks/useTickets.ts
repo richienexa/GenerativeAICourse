@@ -4,10 +4,10 @@ import { useBoardStore } from '@/store/boardStore'
 
 export const TICKETS_KEY = 'tickets'
 
-export function useTickets() {
+export function useTickets(page = 1) {
   const filters = useBoardStore((s) => s.filters)
   return useQuery({
-    queryKey: [TICKETS_KEY, filters],
-    queryFn: () => fetchTickets(filters),
+    queryKey: [TICKETS_KEY, filters, page],
+    queryFn: () => fetchTickets(filters, page),
   })
 }

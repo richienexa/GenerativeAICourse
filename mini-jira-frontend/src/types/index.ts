@@ -18,7 +18,6 @@ export interface Ticket {
   status: TicketStatus
   priority: TicketPriority
   is_blocked: boolean
-  version: number
   created_by: string
   archived_at: string | null
   created_at: string
@@ -45,7 +44,6 @@ export interface CreateTicketPayload {
 }
 
 export interface UpdateTicketPayload {
-  version: number
   title?: string
   description?: string | null
   status?: TicketStatus

@@ -64,7 +64,10 @@ export function setupMocks() {
       if (params?.priority) result = result.filter((t) => t.priority === params.priority)
       if (params?.assignee_id) result = result.filter((t) => t.assignees.some((a) => a.id === params.assignee_id))
       if (params?.label) result = result.filter((t) => t.labels.includes(params.label))
-      return ok(result, config)
+      const page = Number(params?.page ?? 1)
+      const limit = Number(params?.limit ?? 50)
+      const paged = result.slice((page - 1) * limit, page * limit)
+      return ok({ data: paged, page, limit }, config)
     }
 
     if (url === '/tickets' && method === 'post') {
@@ -76,7 +79,6 @@ export function setupMocks() {
         status: 'todo',
         priority: body.priority,
         is_blocked: false,
-        version: 1,
         created_by: mockUser.id,
         archived_at: null,
         created_at: new Date().toISOString(),
@@ -100,10 +102,6 @@ export function setupMocks() {
 
       if (method === 'patch') {
         if (idx === -1) return fail(404, 'Ticket no encontrado', config)
-        // Optimistic locking: simula un 409 si la versión no coincide
-        if (body.version !== undefined && body.version !== tickets[idx].version) {
-          return fail(409, 'Conflict', config)
-        }
         const assignees = body.assignee_ids
           ? users.filter((u) => body.assignee_ids.includes(u.id))
           : tickets[idx].assignees
@@ -111,7 +109,6 @@ export function setupMocks() {
           ...tickets[idx],
           ...body,
           assignees,
-          version: tickets[idx].version + 1,
           updated_at: new Date().toISOString(),
         }
         return ok(tickets[idx], config)

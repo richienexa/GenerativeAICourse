@@ -63,7 +63,7 @@ export function TicketForm({ ticket, onClose }: TicketFormProps) {
           labels: values.labels,
         })
       } else {
-        await updateMutation.mutateAsync({ version: ticket!.version, ...values })
+        await updateMutation.mutateAsync({ ...values })
       }
       onClose()
     } catch (err: unknown) {

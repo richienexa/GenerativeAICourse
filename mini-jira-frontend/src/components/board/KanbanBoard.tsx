@@ -10,6 +10,7 @@ import {
 } from '@dnd-kit/core'
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { KanbanColumn } from './KanbanColumn'
 import { TicketCard } from './TicketCard'
 import { useTickets, TICKETS_KEY } from '@/hooks/useTickets'
@@ -26,7 +27,12 @@ const COLUMNS: { id: TicketStatus; label: string }[] = [
 const VALID_STATUSES = new Set<string>(['todo', 'in_progress', 'review', 'done'])
 
 export function KanbanBoard() {
-  const { data: tickets = [], isLoading } = useTickets()
+  const [page, setPage] = useState(1)
+  const { data: ticketsPage, isLoading } = useTickets(page)
+  const tickets: Ticket[] = ticketsPage?.data ?? []
+  const limit = ticketsPage?.limit ?? 50
+  const hasMore = tickets.length === limit
+
   const [activeTicket, setActiveTicket] = useState<Ticket | null>(null)
   const [, startTransition] = useTransition()
   const qc = useQueryClient()
@@ -58,7 +64,6 @@ export function KanbanBoard() {
     const ticket = tickets.find((t) => t.id === active.id)
     if (!ticket) return
 
-    // over.id puede ser el id de una columna (status) o el id de otro ticket
     let newStatus: TicketStatus
     if (VALID_STATUSES.has(over.id as string)) {
       newStatus = over.id as TicketStatus
@@ -82,20 +87,43 @@ export function KanbanBoard() {
   }
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex gap-4">
-        {COLUMNS.map(({ id, label }) => (
-          <KanbanColumn
-            key={id}
-            id={id}
-            label={label}
-            tickets={optimisticTickets.filter((t) => t.status === id && !t.archived_at)}
-          />
-        ))}
-      </div>
-      <DragOverlay>
-        {activeTicket ? <TicketCard ticket={activeTicket} isDragging /> : null}
-      </DragOverlay>
-    </DndContext>
+    <div className="flex flex-col gap-3">
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div className="flex gap-4">
+          {COLUMNS.map(({ id, label }) => (
+            <KanbanColumn
+              key={id}
+              id={id}
+              label={label}
+              tickets={optimisticTickets.filter((t) => t.status === id && !t.archived_at)}
+            />
+          ))}
+        </div>
+        <DragOverlay>
+          {activeTicket ? <TicketCard ticket={activeTicket} isDragging /> : null}
+        </DragOverlay>
+      </DndContext>
+
+      {/* Pagination */}
+      {(page > 1 || hasMore) && (
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-on-surface-variant transition-colors hover:bg-surface-container disabled:opacity-40"
+          >
+            <ChevronLeft size={13} /> Anterior
+          </button>
+          <span className="text-xs text-on-surface-variant">Página {page}</span>
+          <button
+            onClick={() => setPage((p) => p + 1)}
+            disabled={!hasMore}
+            className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-on-surface-variant transition-colors hover:bg-surface-container disabled:opacity-40"
+          >
+            Siguiente <ChevronRight size={13} />
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

@@ -91,51 +91,53 @@ router.get('/', verifyToken, async (req: Request, res: Response): Promise<void> 
       conditions.push(lte(tickets.createdAt, new Date(query.to)));
     }
 
+    // Resolve assignee/label filters to ticket ID sets BEFORE pagination
+    if (query.assignee_id) {
+      const rows = await db
+        .select({ ticketId: ticketAssignees.ticketId })
+        .from(ticketAssignees)
+        .where(eq(ticketAssignees.userId, query.assignee_id));
+      const ids = rows.map((r) => r.ticketId);
+      if (ids.length === 0) {
+        res.json({ data: [], page: 1, limit: query.limit });
+        return;
+      }
+      conditions.push(inArray(tickets.id, ids));
+    }
+
+    if (query.label) {
+      const labelRows = await db
+        .select({ id: labels.id })
+        .from(labels)
+        .where(and(eq(labels.name, query.label), isNull(labels.archivedAt)));
+      if (labelRows.length === 0) {
+        res.json({ data: [], page: 1, limit: query.limit });
+        return;
+      }
+      const ltRows = await db
+        .select({ ticketId: ticketLabels.ticketId })
+        .from(ticketLabels)
+        .where(eq(ticketLabels.labelId, labelRows[0].id));
+      const ids = ltRows.map((r) => r.ticketId);
+      if (ids.length === 0) {
+        res.json({ data: [], page: 1, limit: query.limit });
+        return;
+      }
+      conditions.push(inArray(tickets.id, ids));
+    }
+
     const { page, limit } = query;
     const offset = (page - 1) * limit;
 
-    let ticketRows = await db
+    const ticketRows = await db
       .select()
       .from(tickets)
       .where(and(...conditions))
       .limit(limit)
       .offset(offset);
 
-    // Filter by assignee_id
-    if (query.assignee_id) {
-      const assigneeTicketIds = await db
-        .select({ ticketId: ticketAssignees.ticketId })
-        .from(ticketAssignees)
-        .where(eq(ticketAssignees.userId, query.assignee_id));
-
-      const ids = assigneeTicketIds.map((r) => r.ticketId);
-      ticketRows = ticketRows.filter((t) => ids.includes(t.id));
-    }
-
-    // Filter by label name
-    if (query.label) {
-      const labelRows = await db
-        .select({ id: labels.id })
-        .from(labels)
-        .where(and(eq(labels.name, query.label), isNull(labels.archivedAt)));
-
-      if (labelRows.length === 0) {
-        res.json([]);
-        return;
-      }
-
-      const labelId = labelRows[0].id;
-      const labelTicketIds = await db
-        .select({ ticketId: ticketLabels.ticketId })
-        .from(ticketLabels)
-        .where(eq(ticketLabels.labelId, labelId));
-
-      const ids = labelTicketIds.map((r) => r.ticketId);
-      ticketRows = ticketRows.filter((t) => ids.includes(t.id));
-    }
-
     if (ticketRows.length === 0) {
-      res.json([]);
+      res.json({ data: [], page, limit });
       return;
     }
 
